@@ -1,0 +1,109 @@
+System Architecture
+
+The STM32_Modbus_DataMonitor project is composed of two primary subsystems:
+
+1. **STM32 Firmware (Embedded Side)**
+   - Developed on **STM32CubeIDE**
+   - Handles ADC data acquisition (temperature, Vref)
+   - Implements a **custom UART frame protocol**
+   - Transmits processed data to PC through UART4
+
+2. **Qt GUI Application (PC Side)**
+   - Developed in **C++ (Qt Framework)**
+   - Parses incoming frames
+   - Verifies CRC16 integrity
+   - Displays temperature and voltage values in real-time
+
+---
+
+##  STM32 Firmware Details
+
+### ADC Configuration
+- Resolution: 12-bit  
+- Sampling Time: 480 cycles  
+- Conversion Mode: Continuous  
+- Channels:
+  - Internal temperature sensor  
+  - Internal Vref  
+
+### UART Configuration
+- UART Interface: UART4  
+- Baud Rate: 115200 bps  
+- Data Bits: 8  
+- Stop Bits: 1  
+- Parity: None  
+- Mode: Interrupt-driven TX/RX  
+
+### Custom Frame Structure
+| Field  | Size | Description |
+|---------|------|-------------|
+| Header  | 1 byte | Start of frame (0xAA) |
+| Length  | 1 byte | Number of data bytes |
+| Data    | N bytes | Payload (Temperature + Vref as IEEE 754 floats) |
+| CRC16   | 2 bytes | Error checking |
+| Tail    | 1 byte | End of frame (0x55) |
+
+### CRC16 Calculation
+- Polynomial: `0xA001`  
+- Initial Value: `0xFFFF`  
+- Calculated over: Header + Length + Data fields  
+
+---
+
+##  GUI (Qt) Application Details
+
+- Language: C++  
+- Framework: Qt 5/6  
+- Modules:
+  - `QSerialPort` for communication
+  - `QTimer` for periodic updates
+  - `QByteArray` for frame parsing
+- GUI Elements:
+  - Real-time temperature & voltage displays
+  - CRC status indicator
+  - COM port selector
+  - Connect/Disconnect button
+  - Optional data logging to file
+
+---
+
+## Testing and Validation
+
+### Communication Testing
+- Verified data transmission with **PuTTY** and **Tera Term**
+- Confirmed proper frame parsing and CRC matching
+- Tested baud rates: 9600, 19200, 38400, 57600, 115200 bps  
+- Optimal: 115200 bps
+
+### ADC Verification
+- Compared internal temperature readings with reference thermometer  
+- Checked Vref accuracy against 3.3V reference  
+
+### Stability Testing
+- Continuous 24-hour operation: stable  
+- No data corruption or CRC mismatches  
+- Error rate: < 0.01%  
+
+### Common Issues & Fixes
+| Issue | Cause | Fix |
+|--------|--------|------|
+| CRC mismatch | Byte order inconsistency | Unified endianness |
+| Float decoding error | Incorrect byte alignment | Used union-based conversion |
+| UART overflow | No RX interrupt handling | Implemented interrupt-based RX |
+
+---
+
+##  Tools and Environment
+
+| Component | Tool/Software |
+|------------|---------------|
+| IDE | STM32CubeIDE |
+| Compiler | ARM GCC (arm-none-eabi-gcc) |
+| GUI Framework | Qt (C++11 or later) |
+
+---
+
+## Summary
+
+This document provides a detailed explanation of the technical implementation and validation of the STM32_Modbus_DataMonitor project.  
+The system demonstrates **robust UART communication**, **CRC16 error checking**, and **real-time data visualization**, serving as a compact example of embedded–PC integration for industrial and academic applications.
