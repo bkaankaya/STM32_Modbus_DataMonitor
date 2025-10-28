@@ -1,0 +1,65 @@
+STM32_Modbus_DataMonitor
+An STM32F407-based embedded system for real-time temperature and voltage monitoring using a custom UART frame protocol with CRC16 error checking. Includes STM32 firmware and a Qt (C++) desktop GUI for live data visualization.
+
+Overview
+This project establishes reliable UART communication between an STM32 microcontroller and a PC. The STM32 reads internal temperature and Vref via ADC, packs the data into a custom frame inspired by Modbus RTU, and sends it to a Qt-based GUI for real-time monitoring.
+
+Features
+
+Custom frame protocol with CRC16 checksum
+Real-time ADC acquisition (temperature and voltage reference)
+IEEE 754 float data transmission
+Interrupt-based UART4 communication
+Qt GUI for live data display and CRC validation
+Stable long-term performance
+
+
+Project Structure
+STM32_Modbus_DataMonitor/
+├── stm32/          # STM32CubeIDE firmware project
+├── embeddedGui/    # Qt GUI (C++/QtSerialPort)
+└── docs/           # Documentation and diagrams
+
+Setup
+STM32 Firmware
+
+Open the project in STM32CubeIDE
+Build and flash the firmware
+UART4 Configuration:
+
+TX: PC10
+RX: PC11
+Baud Rate: 115200
+
+
+
+GUI Application
+
+Open embeddedGui in Qt Creator
+Build and run the application
+Select COM port and click Connect
+
+
+Custom Frame Format
+FieldSizeDescriptionHeader1 byteStart (0xAA)Length1 byteData lengthDataN bytesPayload (floats)CRC162 bytesError checkTail1 byteEnd (0x55)
+CRC16 Details
+
+Polynomial: 0xA001
+Initial value: 0xFFFF
+
+
+Testing
+
+Baud rates tested: 9600 – 115200 bps
+Optimal rate: 115200 bps
+24-hour continuous operation with no CRC errors
+Verified with Qt GUI
+
+
+Development Environment
+ToolVersionSTM32CubeIDE1.x or laterCompilerARM GCC (arm-none-eabi-gcc)Qt Framework5.x / 6.xOperating SystemWindows 10 / Ubuntu 22.04
+
+License
+Licensed under the MIT License.
+
+Industrial-grade communication made simple — STM32 + Qt.
