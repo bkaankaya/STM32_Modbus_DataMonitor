@@ -16,7 +16,7 @@ FIRMWARE = (ROOT / "stm32" / "Core" / "Src" / "main.c").read_text(encoding="utf-
 
 def extract(signature: str) -> str:
     # Match the definition, not a forward declaration ending in ';'.
-    match = re.search(re.escape(signature) + r"\\s*\\{", FIRMWARE)
+    match = re.search(re.escape(signature) + r"\s*\{", FIRMWARE)
     if match is None:
         raise RuntimeError(f"Could not locate function definition: {signature}")
     start = match.start()
