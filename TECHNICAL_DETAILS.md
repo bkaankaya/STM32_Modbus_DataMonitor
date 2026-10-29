@@ -155,7 +155,7 @@ The post-internship fixes are traceable in Git history; they should not be misre
 
 - Both MCU and GUI contain CRC16 functions using 0xA001 and 0xFFFF.
 - Function 0x03 register request/response construction and parsing paths are present.
-- STM32CubeIDE configuration, vendor HAL sources, Qt/CMake project, and checked-in STM32 build artifacts are present.
+- STM32CubeIDE configuration, vendor HAL sources, the Qt/CMake project, and a reproducible ARM firmware build script are present. Generated `stm32/Debug/` outputs are not checked in.
 - GUI displays temperature, reference-voltage, and button values from decoded registers.
 
 ### Recorded in earlier project notes; no supporting logs committed

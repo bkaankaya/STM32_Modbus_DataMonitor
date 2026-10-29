@@ -19,7 +19,7 @@ This repository is a snapshot of an internship learning project, not a productio
 - **.github/workflows/qt-build.yml** — GitHub Actions builds the Qt desktop application and STM32 ARM ELF, then runs firmware syntax and protocol regression checks
 - **[TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md)** — implementation details, original test notes, maintenance changes, and verification limits
 
-There is no separate docs/ directory in this repository.
+The source-controlled project excludes generated IDE build outputs. Technical notes are in [TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md).
 
 ## Hardware and software
 
@@ -90,7 +90,7 @@ On Linux with **arm-none-eabi-gcc**, binutils, and the ARM newlib/nano runtime i
 bash tests/build_stm32.sh build/stm32
 ```
 
-STM32CubeIDE can also import `stm32/` and use the existing CubeMX project. The historical generated `stm32/Debug/makefile` contains the original developer's Windows paths; prefer the portable script for command-line builds.
+STM32CubeIDE can also import `stm32/` and use the existing CubeMX project. Generated STM32CubeIDE `Debug/` outputs are deliberately excluded from version control; STM32CubeIDE regenerates them when building. Use the portable script for reproducible command-line builds.
 
 On Linux with GCC/G++ and Python 3, run the protocol regression suites:
 

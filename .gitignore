@@ -2,4 +2,13 @@
 *.user 
 *.launch 
 build/ 
-.settings/ 
+.settings/
+
+# Local STM32CubeIDE compiler outputs (regenerate from source)
+/stm32/Debug/
+/stm32/Release/
+*.o
+*.d
+*.elf
+*.map
+*.list
