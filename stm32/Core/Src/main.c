@@ -207,6 +207,8 @@ void ADC_Read_All_Channels(void)
 
     if (adc_raw_vref > 100 && adc_raw_vref < 4095)
     {
+        // Estimate VDDA from nominal VREFINT (1.21 V). This is not a direct
+        // measurement of the internal reference voltage or a calibrated value.
         vref_voltage = (1.21f * 4095.0f) / (float)adc_raw_vref;
         float temp_voltage = ((float)adc_raw_temp * vref_voltage) / 4095.0f;
         temp_celsius = ((temp_voltage - 0.76f) / 0.0025f) + 25.0f;

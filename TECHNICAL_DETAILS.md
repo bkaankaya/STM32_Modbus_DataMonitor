@@ -13,7 +13,7 @@ This document records the behavior visible in the checked-in STM32 firmware, Cub
 **STM32 firmware (C, STM32CubeIDE)**
 
 - Board configuration: STM32F407G-DISC1 / STM32F407VGTx (stm32/deneme3.ioc).
-- ADC1 reads the **internal temperature sensor** and **Vrefint**, then computes temperature and supply/reference-voltage values.
+- ADC1 reads the **internal temperature sensor** and **Vrefint**, then computes temperature and an **estimated VDDA supply voltage** from Vrefint (using a nominal 1.21 V assumption).
 - The firmware periodically updates five 16-bit Modbus holding registers and answers **Function 0x03** UART requests as slave address **1**.
 - The main loop uses HAL polling/blocking functions for ADC and UART rather than an RTOS or UART RX/TX interrupts.
 - TX and RX activity is indicated by onboard LEDs.
@@ -38,7 +38,7 @@ This document records the behavior visible in the checked-in STM32 firmware, Cub
 
 The generated ADC configuration sets continuous conversion and two configured channels, but the **runtime read function manually stops, reconfigures and polls each channel**. Describing the acquisition solely as interrupt-driven or DMA-driven would therefore be incorrect.
 
-The temperature calculation in the firmware uses fixed constants (1.21 V Vrefint, 0.76 V and 0.0025 V/degree C sensor approximation). No calibration records or accuracy measurement files are included in the repository.
+The firmware estimates **VDDA**, not the internal Vrefint voltage itself: `VDDA ≈ 1.21 V × 4095 / ADC_VREFINT`. The temperature calculation also uses nominal 0.76 V and 0.0025 V/degree C sensor constants. No calibration records or accuracy measurement files are included in the repository.
 
 ## 3. UART hardware and execution
 
@@ -91,8 +91,8 @@ The firmware also returns Modbus-style exception frames for unsupported function
 | --- | --- | --- |
 | 0 | Temperature high word | Float bits 31–16 |
 | 1 | Temperature low word | Float bits 15–0 |
-| 2 | Reference voltage high word | Float bits 31–16 |
-| 3 | Reference voltage low word | Float bits 15–0 |
+| 2 | Estimated VDDA high word | Float bits 31–16 |
+| 3 | Estimated VDDA low word | Float bits 15–0 |
 | 4 | Button state | Unsigned 0 or 1 |
 
 The MCU packs each floating-point value into two 16-bit words, and the GUI reconstructs it using the same word order. The All request reads five registers.
@@ -117,7 +117,7 @@ The checked-in GUI source uses:
 - **CRC16/Modbus** validation, slave-ID and function-code checks.
 - A small Qt-independent **modbusframe.h** validator that collects complete responses (including 5-byte exception replies) and rejects invalid byte counts, CRCs, and unsolicited frames.
 - The serial-port object is reused across connects; requests are serialized to avoid overlapping replies.
-- Button controls for temperature, Vref, button state, and reading all registers.
+- Button controls for temperature, estimated VDDA, button state, and reading all registers.
 
 The GUI code does **not** implement a file data logger in the current snapshot; an earlier note's optional logging feature should not be considered implemented.
 
@@ -156,7 +156,7 @@ The post-internship fixes are traceable in Git history; they should not be misre
 - Both MCU and GUI contain CRC16 functions using 0xA001 and 0xFFFF.
 - Function 0x03 register request/response construction and parsing paths are present.
 - STM32CubeIDE configuration, vendor HAL sources, the Qt/CMake project, and a reproducible ARM firmware build script are present. Generated `stm32/Debug/` outputs are not checked in.
-- GUI displays temperature, reference-voltage, and button values from decoded registers.
+- GUI displays temperature, estimated supply-voltage, and button values from decoded registers.
 
 ### Recorded in earlier project notes; no supporting logs committed
 

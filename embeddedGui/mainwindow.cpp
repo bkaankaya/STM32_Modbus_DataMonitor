@@ -238,7 +238,7 @@ void MainWindow::parseModbusResponse(const QByteArray &response)
     case REQ_VREF:
         if (registers.size() >= 2) {
             float vref = registersToFloat(registers[0], registers[1]);
-            ui->lblOutput->setText("Vref: " + formatVoltage(vref));
+            ui->lblOutput->setText("VDDA (estimated): " + formatVoltage(vref));
             qDebug() << "Vref:" << vref;
         } else {
             ui->lblOutput->setText("Hata: Yetersiz veri!");
@@ -251,7 +251,7 @@ void MainWindow::parseModbusResponse(const QByteArray &response)
             float vref = registersToFloat(registers[2], registers[3]);
             quint16 buttonState = registers[4];  // 5. register buton durumu
             QString allData = "Sıcaklık: " + formatTemperature(temp) + "\n";
-            allData += "Vref: " + formatVoltage(vref) + "\n";
+            allData += "VDDA (est.): " + formatVoltage(vref) + "\n";
             allData += "Buton: " + formatButtonState(buttonState);  // Buton durumunu ekle
             ui->lblOutput->setText(allData);
 

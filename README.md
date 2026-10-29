@@ -7,7 +7,7 @@ This repository is a snapshot of an internship learning project, not a productio
 ## What the project does
 
 - The STM32F407 reads its **internal temperature sensor** and **Vrefint** through ADC1. It refreshes the holding-register values approximately every 500 ms in the main loop.
-- A Qt/C++ desktop application connects over a USB-to-UART serial link and **requests** temperature, reference-voltage, or button-state data. The STM32 responds to these requests; it does not continuously stream unsolicited frames.
+- A Qt/C++ desktop application connects over a USB-to-UART serial link and **requests** temperature, estimated supply-voltage (VDDA), or button-state data. The STM32 responds to these requests; it does not continuously stream unsolicited frames.
 - Firmware and GUI use **Modbus RTU-style Function 0x03 (Read Holding Registers)**, slave address **1**, and **CRC16/Modbus** for request and response integrity.
 - The firmware also reads an onboard button on PA0 and uses LEDs to indicate serial activity.
 
@@ -27,7 +27,7 @@ The source-controlled project excludes generated IDE build outputs. Technical no
 - **MCU firmware:** C, STM32CubeIDE, STM32 HAL, ARM GCC toolchain
 - **PC interface:** Qt 5/6, Qt Widgets and SerialPort, C++17, CMake
 - **Serial link:** UART4, TX on PC10, RX on PC11, 115200 baud, 8 data bits, no parity, 1 stop bit, no hardware flow control
-- **ADC:** 12-bit readings from the internal temperature sensor and Vrefint, using HAL calls
+- **ADC:** 12-bit readings from the internal temperature sensor and Vrefint, using HAL calls; Vrefint is used to estimate VDDA using a nominal 1.21 V constant
 - **Execution model:** a bare-metal main loop; UART receive/transmit and ADC acquisition use HAL **polling/blocking APIs**, not interrupt-driven UART or an RTOS
 
 The internship setup used a TTL-232RG USB-to-UART adapter. Match voltage levels and connect a common ground according to the board and adapter documentation.
@@ -51,11 +51,11 @@ Slave address (1) | Function code with 0x80 set (1) | Exception code (1) | CRC16
 | --- | --- |
 | 0 | Temperature float, high 16-bit word |
 | 1 | Temperature float, low 16-bit word |
-| 2 | Reference voltage float, high 16-bit word |
-| 3 | Reference voltage float, low 16-bit word |
+| 2 | Estimated VDDA float, high 16-bit word |
+| 3 | Estimated VDDA float, low 16-bit word |
 | 4 | Button state (0 = released, 1 = pressed) |
 
-Temperature and reference voltage use 32-bit IEEE-754 float values split across two 16-bit registers. The Qt GUI recombines those words when displaying a value.
+Temperature and estimated VDDA use 32-bit IEEE-754 float values split across two 16-bit registers. The Qt GUI recombines those words when displaying a value.
 
 ## Opening the project
 
@@ -71,7 +71,7 @@ Temperature and reference voltage use 32-bit IEEE-754 float values split across 
 1. Open **embeddedGui/CMakeLists.txt** with Qt Creator or configure it with CMake and an installed Qt 5/6 toolchain including Widgets and SerialPort.
 2. Build and start the GUI.
 3. Select the appropriate serial port and **115200, 8N1** settings, then connect.
-4. Use the Temperature, Vref, Button, or All controls to send read requests.
+4. Use the Temperature, VDDA, Button, or All controls to send read requests.
 
 The Qt build, cross-compiled STM32 firmware ELF, and protocol tests run in [GitHub Actions](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions). Successful software builds are **not** a substitute for flashing the board and running electrical/serial tests.
 
