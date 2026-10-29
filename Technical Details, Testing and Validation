@@ -1,109 +1,162 @@
-System Architecture
+# Technical Details, Testing and Validation
 
-The STM32_Modbus_DataMonitor project is composed of two primary subsystems:
+## Scope and evidence
 
-1. **STM32 Firmware (Embedded Side)**
-   - Developed on **STM32CubeIDE**
-   - Handles ADC data acquisition (temperature, Vref)
-   - Implements a **custom UART frame protocol**
-   - Transmits processed data to PC through UART4
+This document records the behavior visible in the checked-in STM32 firmware, CubeMX project configuration, Qt/C++ desktop application, and earlier project notes. The project was carried out during a mentor-guided embedded-systems internship.
 
-2. **Qt GUI Application (PC Side)**
-   - Developed in **C++ (Qt Framework)**
-   - Parses incoming frames
-   - Verifies CRC16 integrity
-   - Displays temperature and voltage values in real-time
+**Verified in this document** means confirmed by inspection of the repository source/configuration. It does **not** mean the firmware was freshly compiled, programmed, electrically measured, or tested on hardware during this documentation update. Historical test claims from the original notes are distinguished below.
 
----
+## 1. Architecture
 
-##  STM32 Firmware Details
+**STM32 firmware (C, STM32CubeIDE)**
 
-### ADC Configuration
-- Resolution: 12-bit  
-- Sampling Time: 480 cycles  
-- Conversion Mode: Continuous  
-- Channels:
-  - Internal temperature sensor  
-  - Internal Vref  
+- Board configuration: STM32F407G-DISC1 / STM32F407VGTx (stm32/deneme3.ioc).
+- ADC1 reads the **internal temperature sensor** and **Vrefint**, then computes temperature and supply/reference-voltage values.
+- The firmware periodically updates five 16-bit Modbus holding registers and answers **Function 0x03** UART requests as slave address **1**.
+- The main loop uses HAL polling/blocking functions for ADC and UART rather than an RTOS or UART RX/TX interrupts.
+- TX and RX activity is indicated by onboard LEDs.
 
-### UART Configuration
-- UART Interface: UART4  
-- Baud Rate: 115200 bps  
-- Data Bits: 8  
-- Stop Bits: 1  
-- Parity: None  
-- Mode: Interrupt-driven TX/RX  
+**PC application (Qt/C++17)**
 
-### Custom Frame Structure
-| Field  | Size | Description |
-|---------|------|-------------|
-| Header  | 1 byte | Start of frame (0xAA) |
-| Length  | 1 byte | Number of data bytes |
-| Data    | N bytes | Payload (Temperature + Vref as IEEE 754 floats) |
-| CRC16   | 2 bytes | Error checking |
-| Tail    | 1 byte | End of frame (0x55) |
+- Qt Widgets GUI and Qt SerialPort communicate with the MCU through a USB-to-UART adapter.
+- The GUI selects a serial port, sends Modbus read requests, checks response CRC16, reconstructs floats from register words, and shows temperature, voltage, and button state.
+- Its QTimer is used as a **one-shot request timeout (1,000 ms)**, not for periodic data streaming.
+- Requests are initiated by GUI button actions; displayed values update when requests are made.
 
-### CRC16 Calculation
-- Polynomial: `0xA001`  
-- Initial Value: `0xFFFF`  
-- Calculated over: Header + Length + Data fields  
+## 2. ADC acquisition
 
----
+| Source | Checked-in implementation |
+| --- | --- |
+| ADC peripheral | ADC1, 12-bit resolution |
+| Inputs | ADC_CHANNEL_TEMPSENSOR and ADC_CHANNEL_VREFINT |
+| Sampling time | 480 ADC cycles for each input |
+| Runtime method | HAL_ADC_Stop, HAL_ADC_ConfigChannel, HAL_ADC_Start, HAL_ADC_PollForConversion, HAL_ADC_GetValue |
+| Holding-register update | Approximately every 500 ms from the main loop |
+| Value encoding | 32-bit float split into high/low 16-bit register words |
 
-##  GUI (Qt) Application Details
+The generated ADC configuration sets continuous conversion and two configured channels, but the **runtime read function manually stops, reconfigures and polls each channel**. Describing the acquisition solely as interrupt-driven or DMA-driven would therefore be incorrect.
 
-- Language: C++  
-- Framework: Qt 5/6  
-- Modules:
-  - `QSerialPort` for communication
-  - `QTimer` for periodic updates
-  - `QByteArray` for frame parsing
-- GUI Elements:
-  - Real-time temperature & voltage displays
-  - CRC status indicator
-  - COM port selector
-  - Connect/Disconnect button
-  - Optional data logging to file
+The temperature calculation in the firmware uses fixed constants (1.21 V Vrefint, 0.76 V and 0.0025 V/degree C sensor approximation). No calibration records or accuracy measurement files are included in the repository.
 
----
+## 3. UART hardware and execution
 
-## Testing and Validation
+| Property | Value in source |
+| --- | --- |
+| Instance | UART4 |
+| TX / RX | PC10 / PC11 |
+| Baud rate | 115200 |
+| Data format | 8 data bits, no parity, 1 stop bit (8N1) |
+| Flow control | None |
+| MCU receive | HAL_UART_Receive, one byte at a time (polling) |
+| MCU transmit | HAL_UART_Transmit (blocking) |
+| UART receive buffer | 64 bytes; the index is reset on reaching the configured limit |
+| End-of-request detection | Fixed 10 ms gap since the most recent received byte |
+| RTOS | Not used |
 
-### Communication Testing
-- Verified data transmission with **PuTTY** and **Tera Term**
-- Confirmed proper frame parsing and CRC matching
-- Tested baud rates: 9600, 19200, 38400, 57600, 115200 bps  
-- Optimal: 115200 bps
+The 10 ms gap is a **fixed timeout** used by this implementation. It is **not equivalent** to the standard Modbus RTU 3.5-character time at 115200 baud, despite an outdated comment in the source. Firmware ADC work and delays also run in the same loop as UART polling.
 
-### ADC Verification
-- Compared internal temperature readings with reference thermometer  
-- Checked Vref accuracy against 3.3V reference  
+No UART interrupt-driven RX implementation, register-level driver implementation, or DMA receive path is established by the application's checked-in source.
 
-### Stability Testing
-- Continuous 24-hour operation: stable  
-- No data corruption or CRC mismatches  
-- Error rate: < 0.01%  
+## 4. Protocol and register representation
 
-### Common Issues & Fixes
-| Issue | Cause | Fix |
-|--------|--------|------|
-| CRC mismatch | Byte order inconsistency | Unified endianness |
-| Float decoding error | Incorrect byte alignment | Used union-based conversion |
-| UART overflow | No RX interrupt handling | Implemented interrupt-based RX |
+This implementation exchanges **Modbus RTU-style register frames**, not packets delimited by 0xAA and 0x55.
 
----
+**Read request (8 bytes):**
 
-##  Tools and Environment
+| Position | Length | Field |
+| --- | --- | --- |
+| 0 | 1 byte | Slave ID = 0x01 |
+| 1 | 1 byte | Function = 0x03 |
+| 2–3 | 2 bytes | Start address, high byte then low byte |
+| 4–5 | 2 bytes | Quantity, high byte then low byte |
+| 6–7 | 2 bytes | CRC16, low byte then high byte |
 
-| Component | Tool/Software |
-|------------|---------------|
-| IDE | STM32CubeIDE |
-| Compiler | ARM GCC (arm-none-eabi-gcc) |
-| GUI Framework | Qt (C++11 or later) |
+**Normal response:**
 
----
+| Position | Length | Field |
+| --- | --- | --- |
+| 0 | 1 byte | Slave ID |
+| 1 | 1 byte | Function = 0x03 |
+| 2 | 1 byte | Byte count = 2 × register quantity |
+| 3 onward | 2 bytes per register | Values, high byte then low byte |
+| Last 2 | 2 bytes | CRC16, low byte then high byte |
 
-## Summary
+The firmware also returns Modbus-style exception frames for unsupported functions and invalid register ranges.
 
-This document provides a detailed explanation of the technical implementation and validation of the STM32_Modbus_DataMonitor project.  
-The system demonstrates **robust UART communication**, **CRC16 error checking**, and **real-time data visualization**, serving as a compact example of embedded–PC integration for industrial and academic applications.
+**CRC16/Modbus:** polynomial 0xA001, initial value 0xFFFF, calculated over all bytes preceding the CRC field.
+
+| Register index | Meaning | Encoding |
+| --- | --- | --- |
+| 0 | Temperature high word | Float bits 31–16 |
+| 1 | Temperature low word | Float bits 15–0 |
+| 2 | Reference voltage high word | Float bits 31–16 |
+| 3 | Reference voltage low word | Float bits 15–0 |
+| 4 | Button state | Unsigned 0 or 1 |
+
+The MCU packs each floating-point value into two 16-bit words, and the GUI reconstructs it using the same word order. The All request reads five registers.
+
+## 5. GPIO and button
+
+- The onboard button is read from **PA0**.
+- A function named **Button_Debounce_Update** implements a 100 ms stable-high check, but this function is **not called** by the active main loop in stm32/Core/Src/main.c.
+- The currently executed loop directly samples PA0 and writes 0/1 into holding register 4.
+- GPIO D13/D15 LEDs indicate UART TX/RX activity.
+
+Consequently, the existence of the debounce function should not be presented as proof that the running firmware uses debounced button values.
+
+## 6. Qt desktop application
+
+The checked-in GUI source uses:
+
+- **QSerialPort / QSerialPortInfo** for serial communication and port discovery.
+- **QByteArray** as the incoming response buffer.
+- **QTimer** for a one-shot 1-second response timeout.
+- **QVector<quint16>** and an IEEE-754 word reconstruction helper for returned register values.
+- **CRC16/Modbus** validation, slave-ID and function-code checks.
+- Button controls for temperature, Vref, button state, and reading all registers.
+
+The GUI code does **not** implement a file data logger in the current snapshot; an earlier note's optional logging feature should not be considered implemented.
+
+### Code-review observations (not fixed in this documentation-only update)
+
+1. **Partial replies:** readSerialData() invokes the parser once at least **7 bytes** have arrived. A response containing two holding registers is **9 bytes**, and the All response is **15 bytes**; arriving in multiple chunks can cause premature parsing and apparent CRC failures.
+2. **Register count check:** the REQ_ALL parser checks for at least **4 registers** but reads the fifth register at index 4. An unexpectedly short but otherwise accepted payload could therefore lead to out-of-range access.
+3. **Button debounce:** the debounce function is present but unused by the active loop.
+4. **Frame timing:** the firmware's 10 ms frame-gap timeout and blocking/polling operation do not establish strict Modbus RTU timing compliance.
+
+These observations are from static source inspection and are retained to preserve the original internship implementation.
+
+## 7. Testing and validation record
+
+### Confirmed by repository inspection
+
+- Both MCU and GUI contain CRC16 functions using 0xA001 and 0xFFFF.
+- Function 0x03 register request/response construction and parsing paths are present.
+- STM32CubeIDE configuration, vendor HAL sources, Qt/CMake project, and checked-in STM32 build artifacts are present.
+- GUI displays temperature, reference-voltage, and button values from decoded registers.
+
+### Recorded in earlier project notes; no supporting logs committed
+
+- Serial checks using PuTTY and Tera Term.
+- Baud-rate experimentation at 9600, 19200, 38400, 57600, and 115200 bps.
+- Comparison of temperature and voltage readings against reference measurements.
+- A reported 24-hour continuous operation run.
+- Statements about zero CRC mismatches and error rate below 0.01%.
+
+These are **historical notes, not independently reproduced results**. The repository contains no raw serial captures, benchmark logs, device-lab records, automated test reports, or measured results substantiating those figures. No further performance or production-reliability claim is made here.
+
+## 8. Development tools and distribution
+
+| Component | Repository evidence |
+| --- | --- |
+| IDE/configuration | STM32CubeIDE, STM32CubeMX .ioc project |
+| Firmware toolchain | ARM GCC (arm-none-eabi-gcc) project/build artifacts |
+| Desktop build | CMake with Qt 5/6 Widgets, SerialPort, LinguistTools |
+| Language standard | Qt GUI configured as C++17 |
+| Debugging equipment | Serial adapter described in internship notes; no committed debugger or oscilloscope session records |
+
+The repository has **no top-level LICENSE file**. Vendor HAL/CMSIS components carry their own license notices. An earlier document's blanket MIT licensing assertion is not supported by the checked-in files.
+
+## 9. Summary
+
+The repository provides a useful **mentor-guided embedded-systems internship example** of STM32 ADC acquisition, polling-based UART, Modbus RTU-style communication with CRC16, and a Qt/C++ desktop interface. The documented limitations are part of the existing snapshot and have **not been patched** during this documentation review.
