@@ -15,7 +15,7 @@ This repository is a snapshot of an internship learning project, not a productio
 
 - **stm32/** — STM32CubeIDE/CubeMX project, firmware in Core/Src/main.c, startup and vendor HAL/CMSIS sources
 - **embeddedGui/** — Qt Widgets/C++ desktop GUI, Qt SerialPort integration, Modbus response validator, and CMake project
-- **tests/** — C++ Modbus framing/CRC regression tests
+- **tests/** — C++ Modbus framing/CRC tests and a host-side test of the actual STM32 Modbus handler using HAL stubs
 - **.github/workflows/qt-build.yml** — GitHub Actions Qt build, ARM-source syntax checks, and protocol tests
 - **Technical Details, Testing and Validation** — implementation details, original test notes, and verification limits
 
@@ -73,7 +73,7 @@ Temperature and reference voltage use 32-bit IEEE-754 float values split across 
 3. Select the appropriate serial port and **115200, 8N1** settings, then connect.
 4. Use the Temperature, Vref, Button, or All controls to send read requests.
 
-The desktop build and automated protocol tests run in [GitHub Actions](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions). The CI workflow also checks the application firmware sources using ARM GCC when the job succeeds. These software checks are **not** a substitute for building/flashing the complete STM32CubeIDE project and testing on the actual board.
+The Qt build, protocol tests, and firmware-handler host tests run in [GitHub Actions](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions). The CI workflow also checks the application firmware sources using ARM GCC when the job succeeds. These software checks are **not** a substitute for building/flashing the complete STM32CubeIDE project and testing on the actual board.
 
 ## Verified fixes and remaining limits
 

@@ -143,8 +143,9 @@ The post-internship fixes are traceable in Git history; they should not be misre
 ### Software validation
 
 - **tests/test_modbusframe.cpp** checks Modbus CRC against a known request vector, fragmented replies, complete replies of several lengths, exception responses, wrong slave ID/function, corrupted CRC, mismatched register counts, and unexpected trailing bytes.
+- **tests/test_firmware_protocol.py** extracts the actual firmware C functions **Calculate_CRC16** and **Modbus_Process_Request**, compiles them on a host with small HAL stubs and ASan/UBSan, and tests normal and exceptional responses, invalid CRCs, wrong slave IDs, malformed request lengths, and register boundaries. This is not a device emulator.
 - The portable protocol test was built and run with **g++ -std=c++17** and AddressSanitizer/UndefinedBehaviorSanitizer in the maintenance environment.
-- **.github/workflows/qt-build.yml** builds the Qt desktop application on Ubuntu and runs the same protocol tests; it also runs ARM GCC syntax checks on the three STM32 application C sources. Consult the [Actions run history](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions) for per-commit results.
+- **.github/workflows/qt-build.yml** builds the Qt desktop application on Ubuntu, runs both protocol test suites, and runs ARM GCC syntax checks on the three STM32 application C sources. Consult the [Actions run history](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions) for per-commit results.
 - These are software build and unit checks, **not** end-to-end hardware tests or proof of real-time serial reliability.
 
 ### Confirmed by repository inspection
