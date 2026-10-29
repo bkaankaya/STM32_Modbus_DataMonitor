@@ -4,7 +4,7 @@
 
 This document records the behavior visible in the checked-in STM32 firmware, CubeMX project configuration, Qt/C++ desktop application, and earlier project notes. The project was carried out during a mentor-guided embedded-systems internship.
 
-**Verified in this document** means confirmed by inspection of the repository source/configuration. It does **not** mean the firmware was freshly compiled, programmed, electrically measured, or tested on hardware during this documentation update. Historical test claims from the original notes are distinguished below.
+**Verified in this document** means confirmed by inspection of the repository source/configuration. Software regressions and automated desktop builds are separately reported in CI. These do **not** establish that the full firmware was linked/flashed, electrically measured, or tested on the real board during this maintenance work. Historical test claims from the original notes are distinguished below.
 
 ## 1. Architecture
 
@@ -49,11 +49,11 @@ The temperature calculation in the firmware uses fixed constants (1.21 V Vrefint
 | Flow control | None |
 | MCU receive | HAL_UART_Receive, one byte at a time (polling) |
 | MCU transmit | HAL_UART_Transmit (blocking) |
-| UART receive buffer | 64 bytes; the index is reset on reaching the configured limit |
-| End-of-request detection | Fixed 10 ms gap since the most recent received byte |
+| UART receive buffer | 64-byte allocation; the supported Function 0x03 request uses exactly 8 bytes |
+| End-of-request detection | Process exactly 8 accumulated request bytes; discard a partial request after 10 ms inactivity |
 | RTOS | Not used |
 
-The 10 ms gap is a **fixed timeout** used by this implementation. It is **not equivalent** to the standard Modbus RTU 3.5-character time at 115200 baud, despite an outdated comment in the source. Firmware ADC work and delays also run in the same loop as UART polling.
+The 10 ms gap is a **partial-request cleanup timeout**, not an RTU-compliant frame-end delay. The firmware processes a supported 8-byte request as soon as the eighth byte arrives. The firmware still uses blocking ADC operations in the same main loop as UART polling, so rapid requests may lose bytes under certain timing conditions. At 115200 baud, the Modbus serial-line guide recommends 1.750 ms inter-frame delay (and 750 µs inter-character timeout); the original link uses 8N1 rather than the standard's 11-bit framing. This is a Modbus RTU-style demonstration rather than verified full conformance.
 
 No UART interrupt-driven RX implementation, register-level driver implementation, or DMA receive path is established by the application's checked-in source.
 
@@ -98,11 +98,11 @@ The MCU packs each floating-point value into two 16-bit words, and the GUI recon
 ## 5. GPIO and button
 
 - The onboard button is read from **PA0**.
-- A function named **Button_Debounce_Update** implements a 100 ms stable-high check, but this function is **not called** by the active main loop in stm32/Core/Src/main.c.
-- The currently executed loop directly samples PA0 and writes 0/1 into holding register 4.
+- **Button_Debounce_Update** implements a 100 ms stable-high check and is now called in the main loop.
+- The debounced state is published in holding register 4; a release resets the state immediately.
 - GPIO D13/D15 LEDs indicate UART TX/RX activity.
 
-Consequently, the existence of the debounce function should not be presented as proof that the running firmware uses debounced button values.
+This corrects a previously inactive debounce routine without replacing the original algorithm.
 
 ## 6. Qt desktop application
 
@@ -113,20 +113,39 @@ The checked-in GUI source uses:
 - **QTimer** for a one-shot 1-second response timeout.
 - **QVector<quint16>** and an IEEE-754 word reconstruction helper for returned register values.
 - **CRC16/Modbus** validation, slave-ID and function-code checks.
+- A small Qt-independent **modbusframe.h** validator that collects complete responses (including 5-byte exception replies) and rejects invalid byte counts, CRCs, and unsolicited frames.
+- The serial-port object is reused across connects; requests are serialized to avoid overlapping replies.
 - Button controls for temperature, Vref, button state, and reading all registers.
 
 The GUI code does **not** implement a file data logger in the current snapshot; an earlier note's optional logging feature should not be considered implemented.
 
-### Code-review observations (not fixed in this documentation-only update)
+### Maintenance fixes and known limitations
 
-1. **Partial replies:** readSerialData() invokes the parser once at least **7 bytes** have arrived. A response containing two holding registers is **9 bytes**, and the All response is **15 bytes**; arriving in multiple chunks can cause premature parsing and apparent CRC failures.
-2. **Register count check:** the REQ_ALL parser checks for at least **4 registers** but reads the fifth register at index 4. An unexpectedly short but otherwise accepted payload could therefore lead to out-of-range access.
-3. **Button debounce:** the debounce function is present but unused by the active loop.
-4. **Frame timing:** the firmware's 10 ms frame-gap timeout and blocking/polling operation do not establish strict Modbus RTU timing compliance.
+**Fixed after the internship:**
 
-These observations are from static source inspection and are retained to preserve the original internship implementation.
+1. **Partial replies:** Qt no longer parses at an arbitrary 7-byte threshold. It waits for the exact expected length (7 bytes for one register, 9 for two, 15 for five, or 5 for an exception).
+2. **Out-of-range register reads:** the decoder verifies the byte count and complete frame length; the All handler requires all five registers.
+3. **Button debounce:** the existing firmware function is now invoked from the main loop.
+4. **Request processing:** the firmware handles the supported 8-byte Function 0x03 request on receipt of its final byte and rejects non-eight-byte requests.
+5. **Serial reconnect and state:** the Qt GUI reuses its QSerialPort instance, clears timed-out requests, and prevents overlapping commands.
+
+**Remaining engineering limitations:**
+
+- The MCU uses polling, including blocking ADC work, so UART overrun/loss under all hardware timing conditions has **not** been ruled out.
+- The original 8N1 serial configuration and fixed 10 ms partial-frame timeout do **not** implement a fully compliant Modbus RTU receiver with the standard t1.5/t3.5 intervals.
+- There is no MCU-in-the-loop automated test, hardware capture, or independently measured temperature calibration.
+- Hardware reliability requires testing on the exact STM32F407 board and adapter used in the field.
+
+The post-internship fixes are traceable in Git history; they should not be misrepresented as original internship milestones.
 
 ## 7. Testing and validation record
+
+### Software validation
+
+- **tests/test_modbusframe.cpp** checks Modbus CRC against a known request vector, fragmented replies, complete replies of several lengths, exception responses, wrong slave ID/function, corrupted CRC, mismatched register counts, and unexpected trailing bytes.
+- The portable protocol test was built and run with **g++ -std=c++17** and AddressSanitizer/UndefinedBehaviorSanitizer in the maintenance environment.
+- **.github/workflows/qt-build.yml** builds the Qt desktop application on Ubuntu and runs the same protocol tests; it also runs ARM GCC syntax checks on the three STM32 application C sources. Consult the [Actions run history](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions) for per-commit results.
+- These are software build and unit checks, **not** end-to-end hardware tests or proof of real-time serial reliability.
 
 ### Confirmed by repository inspection
 
@@ -159,4 +178,4 @@ The repository has **no top-level LICENSE file**. Vendor HAL/CMSIS components ca
 
 ## 9. Summary
 
-The repository provides a useful **mentor-guided embedded-systems internship example** of STM32 ADC acquisition, polling-based UART, Modbus RTU-style communication with CRC16, and a Qt/C++ desktop interface. The documented limitations are part of the existing snapshot and have **not been patched** during this documentation review.
+The repository remains a **mentor-guided embedded-systems internship example** of STM32 ADC acquisition, polling-based UART, Modbus RTU-style communication with CRC16, and a Qt/C++ desktop interface. Targeted post-internship fixes address deterministic parsing and bounds bugs, while hardware-dependent timing and electrical validation remain explicitly open. See [Modbus Serial Line Guide V1.02](https://www.modbus.org/file/secure/modbusoverserial.pdf), [Qt QIODevice](https://doc.qt.io/qt-6/qiodevice.html), and [ST STM32CubeF4](https://github.com/STMicroelectronics/STM32CubeF4) for the referenced behavior.

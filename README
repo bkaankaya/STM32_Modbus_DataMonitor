@@ -14,7 +14,9 @@ This repository is a snapshot of an internship learning project, not a productio
 ## Repository layout
 
 - **stm32/** — STM32CubeIDE/CubeMX project, firmware in Core/Src/main.c, startup and vendor HAL/CMSIS sources
-- **embeddedGui/** — Qt Widgets/C++ desktop GUI, Qt SerialPort integration, and CMake project
+- **embeddedGui/** — Qt Widgets/C++ desktop GUI, Qt SerialPort integration, Modbus response validator, and CMake project
+- **tests/** — C++ Modbus framing/CRC regression tests
+- **.github/workflows/qt-build.yml** — GitHub Actions Qt build, ARM-source syntax checks, and protocol tests
 - **Technical Details, Testing and Validation** — implementation details, original test notes, and verification limits
 
 There is no separate docs/ directory in this repository.
@@ -71,16 +73,21 @@ Temperature and reference voltage use 32-bit IEEE-754 float values split across 
 3. Select the appropriate serial port and **115200, 8N1** settings, then connect.
 4. Use the Temperature, Vref, Button, or All controls to send read requests.
 
-This repository has not been rebuilt or hardware-tested as part of the documentation review.
+The desktop build and automated protocol tests run in [GitHub Actions](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions). The CI workflow also checks the application firmware sources using ARM GCC when the job succeeds. These software checks are **not** a substitute for building/flashing the complete STM32CubeIDE project and testing on the actual board.
 
-## Known implementation boundaries
+## Verified fixes and remaining limits
 
-- UART reception is **polling-based**. The fixed 10 ms firmware frame-gap timeout is not an exact calculation of the Modbus RTU 3.5-character interval.
-- A software debounce function exists in the firmware, but the current main loop reads PA0 directly; the debounce function is **not active** in the checked-in behavior.
-- The Qt receive handler may attempt to parse a multi-register response before its full length has arrived. This is a source-code limitation, not evidence of a verified production parser.
-- Original notes describe serial checks at multiple baud rates and a long-duration run. This repository does not contain the measurement logs or an automated hardware test harness needed to independently verify those results.
+The original internship implementation has received later maintenance fixes; the Git history distinguishes these changes from the internship work.
 
-For code-level details and the distinction between recorded notes and verified behavior, see **Technical Details, Testing and Validation**.
+- The MCU still uses **polling-based UART**, not interrupt-driven reception or an RTOS. A complete supported **8-byte Function 0x03 request** is now processed immediately; the **10 ms timeout only discards incomplete requests**. This is not a fully standards-compliant RTU frame-timing state machine.
+- The existing **100 ms software debounce** routine is now called from the main loop before the button-state register is served.
+- The GUI buffers serial bytes until it has an entire response of the **expected length**, including 5-byte Modbus exception frames. It checks slave address, function, register count, and CRC before decoding, and discards stale or unsolicited bytes.
+- The GUI rejects overlapping requests and reuses its serial-port object when reconnecting.
+- The firmware can still miss bytes while its blocking ADC acquisition runs. A fully interrupt/DMA-driven design and hardware measurements would be required to verify sustained 115200-baud reliability.
+- This connection uses **8N1** for the original USB-UART setup. The official Modbus RTU serial-line guide specifies an **11-bit character format** (including two stop bits when parity is disabled), so do not advertise this demonstration as fully serial-line compliant.
+- Original notes describe serial experiments and a long-duration run, but raw serial captures and lab logs are not committed. No error-rate or 24-hour reliability guarantee is claimed.
+
+For the current implementation and specific validation limits, see **Technical Details, Testing and Validation**. External references: [Modbus specifications](https://www.modbus.org/modbus-specifications), [Qt QSerialPort](https://doc.qt.io/qt-6/qserialport.html), and [ST STM32CubeF4](https://github.com/STMicroelectronics/STM32CubeF4).
 
 ## Licensing note
 
