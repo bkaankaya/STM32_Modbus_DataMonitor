@@ -6,7 +6,7 @@
 
 This document records the behavior visible in the checked-in STM32 firmware, CubeMX project configuration, Qt/C++ desktop application, and earlier project notes. The project was carried out during a mentor-guided embedded-systems internship.
 
-**Verified in this document** means confirmed by inspection of the repository source/configuration. Software regressions and automated desktop builds are separately reported in CI. These do **not** establish that the full firmware was linked/flashed, electrically measured, or tested on the real board during this maintenance work. Historical test claims from the original notes are distinguished below.
+**Verified in this document** means supported by checked-in source/configuration or the explicitly cited automated test results. GitHub Actions successfully builds the Qt desktop application and cross-compiles **and links** the STM32 firmware into an ARM ELF file. The ELF has **not** been flashed or executed on the physical board during this maintenance review; UART timing, electrical measurements, and sensor accuracy remain unverified on real hardware. Historical test claims from the original notes are distinguished below.
 
 ## 1. Architecture
 
