@@ -16,7 +16,7 @@ This repository is a snapshot of an internship learning project, not a productio
 - **stm32/** — STM32CubeIDE/CubeMX project, firmware in Core/Src/main.c, startup and vendor HAL/CMSIS sources
 - **embeddedGui/** — Qt Widgets/C++ desktop GUI, Qt SerialPort integration, Modbus response validator, and CMake project
 - **tests/** — C++ Modbus framing/CRC tests and a host-side test of the actual STM32 Modbus handler using HAL stubs
-- **.github/workflows/qt-build.yml** — GitHub Actions Qt build, ARM-source syntax checks, and protocol tests
+- **.github/workflows/qt-build.yml** — GitHub Actions builds the Qt desktop application and STM32 ARM ELF, then runs firmware syntax and protocol regression checks
 - **[TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md)** — implementation details, original test notes, maintenance changes, and verification limits
 
 There is no separate docs/ directory in this repository.
