@@ -1,65 +1,87 @@
-STM32_Modbus_DataMonitor
-An STM32F407-based embedded system for real-time temperature and voltage monitoring using a custom UART frame protocol with CRC16 error checking. Includes STM32 firmware and a Qt (C++) desktop GUI for live data visualization.
+# STM32 Modbus Data Monitor
 
-Overview
-This project establishes reliable UART communication between an STM32 microcontroller and a PC. The STM32 reads internal temperature and Vref via ADC, packs the data into a custom frame inspired by Modbus RTU, and sends it to a Qt-based GUI for real-time monitoring.
+An STM32F407 and Qt/C++ monitoring project developed during an embedded-systems internship with mentor guidance. It demonstrates ADC measurement, UART communication, Modbus RTU request/response handling, CRC16 checking, and a desktop interface.
 
-Features
+This repository is a snapshot of an internship learning project, not a production-qualified or flight-qualified system. The documentation below describes the **checked-in implementation**, rather than features planned or described in older notes.
 
-Custom frame protocol with CRC16 checksum
-Real-time ADC acquisition (temperature and voltage reference)
-IEEE 754 float data transmission
-Interrupt-based UART4 communication
-Qt GUI for live data display and CRC validation
-Stable long-term performance
+## What the project does
 
+- The STM32F407 reads its **internal temperature sensor** and **Vrefint** through ADC1. It refreshes the holding-register values approximately every 500 ms in the main loop.
+- A Qt/C++ desktop application connects over a USB-to-UART serial link and **requests** temperature, reference-voltage, or button-state data. The STM32 responds to these requests; it does not continuously stream unsolicited frames.
+- Firmware and GUI use **Modbus RTU-style Function 0x03 (Read Holding Registers)**, slave address **1**, and **CRC16/Modbus** for request and response integrity.
+- The firmware also reads an onboard button on PA0 and uses LEDs to indicate serial activity.
 
-Project Structure
-STM32_Modbus_DataMonitor/
-├── stm32/          # STM32CubeIDE firmware project
-├── embeddedGui/    # Qt GUI (C++/QtSerialPort)
-└── docs/           # Documentation and diagrams
+## Repository layout
 
-Setup
-STM32 Firmware
+- **stm32/** — STM32CubeIDE/CubeMX project, firmware in Core/Src/main.c, startup and vendor HAL/CMSIS sources
+- **embeddedGui/** — Qt Widgets/C++ desktop GUI, Qt SerialPort integration, and CMake project
+- **Technical Details, Testing and Validation** — implementation details, original test notes, and verification limits
 
-Open the project in STM32CubeIDE
-Build and flash the firmware
-UART4 Configuration:
+There is no separate docs/ directory in this repository.
 
-TX: PC10
-RX: PC11
-Baud Rate: 115200
+## Hardware and software
 
+- **Board/project configuration:** STM32F407G-DISC1 (STM32F407VGTx)
+- **MCU firmware:** C, STM32CubeIDE, STM32 HAL, ARM GCC toolchain
+- **PC interface:** Qt 5/6, Qt Widgets and SerialPort, C++17, CMake
+- **Serial link:** UART4, TX on PC10, RX on PC11, 115200 baud, 8 data bits, no parity, 1 stop bit, no hardware flow control
+- **ADC:** 12-bit readings from the internal temperature sensor and Vrefint, using HAL calls
+- **Execution model:** a bare-metal main loop; UART receive/transmit and ADC acquisition use HAL **polling/blocking APIs**, not interrupt-driven UART or an RTOS
 
+The internship setup used a TTL-232RG USB-to-UART adapter. Match voltage levels and connect a common ground according to the board and adapter documentation.
 
-GUI Application
+## Actual communication protocol
 
-Open embeddedGui in Qt Creator
-Build and run the application
-Select COM port and click Connect
+The checked-in application uses a Modbus RTU-like register protocol, **not** the older documented 0xAA/length/payload/0x55 custom packet format.
 
+**Request, Function 0x03:**
+Slave address (1 byte) | Function 0x03 (1) | Start register (2, big-endian) | Register count (2, big-endian) | CRC16 (2, low byte first)
 
-Custom Frame Format
-FieldSizeDescriptionHeader1 byteStart (0xAA)Length1 byteData lengthDataN bytesPayload (floats)CRC162 bytesError checkTail1 byteEnd (0x55)
-CRC16 Details
+**Successful response:**
+Slave address (1) | Function 0x03 (1) | Byte count (1) | Register values (2 bytes each, high byte first) | CRC16 (2, low byte first)
 
-Polynomial: 0xA001
-Initial value: 0xFFFF
+**Exception response:**
+Slave address (1) | Function code with 0x80 set (1) | Exception code (1) | CRC16 (2, low byte first)
 
+**CRC:** reflected polynomial 0xA001, initial value 0xFFFF. The CRC is calculated over all preceding bytes in the Modbus frame.
 
-Testing
+| Holding register | Meaning |
+| --- | --- |
+| 0 | Temperature float, high 16-bit word |
+| 1 | Temperature float, low 16-bit word |
+| 2 | Reference voltage float, high 16-bit word |
+| 3 | Reference voltage float, low 16-bit word |
+| 4 | Button state (0 = released, 1 = pressed) |
 
-Baud rates tested: 9600 – 115200 bps
-Optimal rate: 115200 bps
-24-hour continuous operation with no CRC errors
-Verified with Qt GUI
+Temperature and reference voltage use 32-bit IEEE-754 float values split across two 16-bit registers. The Qt GUI recombines those words when displaying a value.
 
+## Opening the project
 
-Development Environment
-ToolVersionSTM32CubeIDE1.x or laterCompilerARM GCC (arm-none-eabi-gcc)Qt Framework5.x / 6.xOperating SystemWindows 10 / Ubuntu 22.04
+### Firmware
 
-License
-Licensed under the MIT License.
+1. Import the **stm32/** project into STM32CubeIDE.
+2. Inspect the **deneme3.ioc** CubeMX configuration and build for STM32F407VGTx.
+3. Program a compatible STM32F407 board using your available supported programming/debugging hardware.
+4. Connect UART4 on PC10/PC11 to a correctly wired, voltage-compatible USB-to-UART adapter.
 
-Industrial-grade communication made simple — STM32 + Qt.
+### Qt desktop application
+
+1. Open **embeddedGui/CMakeLists.txt** with Qt Creator or configure it with CMake and an installed Qt 5/6 toolchain including Widgets and SerialPort.
+2. Build and start the GUI.
+3. Select the appropriate serial port and **115200, 8N1** settings, then connect.
+4. Use the Temperature, Vref, Button, or All controls to send read requests.
+
+This repository has not been rebuilt or hardware-tested as part of the documentation review.
+
+## Known implementation boundaries
+
+- UART reception is **polling-based**. The fixed 10 ms firmware frame-gap timeout is not an exact calculation of the Modbus RTU 3.5-character interval.
+- A software debounce function exists in the firmware, but the current main loop reads PA0 directly; the debounce function is **not active** in the checked-in behavior.
+- The Qt receive handler may attempt to parse a multi-register response before its full length has arrived. This is a source-code limitation, not evidence of a verified production parser.
+- Original notes describe serial checks at multiple baud rates and a long-duration run. This repository does not contain the measurement logs or an automated hardware test harness needed to independently verify those results.
+
+For code-level details and the distinction between recorded notes and verified behavior, see **Technical Details, Testing and Validation**.
+
+## Licensing note
+
+There is **no repository-level LICENSE file** in the checked-in tree. The bundled STMicroelectronics HAL/CMSIS components include their own license notices; do not assume that the entire repository is covered by an MIT license.
