@@ -18,6 +18,8 @@ jobs:
         run: |
           cmake -S embeddedGui -B build/qt -DCMAKE_BUILD_TYPE=Release
           cmake --build build/qt --parallel 2
+      - name: Build STM32 firmware ELF from sources
+        run: bash tests/build_stm32.sh build/stm32
       - name: Check STM32 application sources with ARM GCC
         run: |
           for src in stm32/Core/Src/main.c stm32/Core/Src/stm32f4xx_hal_msp.c stm32/Core/Src/stm32f4xx_it.c; do
