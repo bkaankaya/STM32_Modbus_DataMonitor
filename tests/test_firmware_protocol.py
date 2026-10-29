@@ -5,6 +5,7 @@ This tests real production functions, not a rewritten Python protocol model.
 It does NOT simulate UART timing, ADC sampling, interrupts or physical hardware.
 """
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -14,12 +15,12 @@ FIRMWARE = (ROOT / "stm32" / "Core" / "Src" / "main.c").read_text(encoding="utf-
 
 
 def extract(signature: str) -> str:
-    start = FIRMWARE.find(signature)
-    if start < 0:
-        raise RuntimeError(f"Could not locate function: {signature}")
-    opening = FIRMWARE.find("{", start + len(signature))
-    if opening < 0:
-        raise RuntimeError(f"Missing opening brace for {signature}")
+    # Match the definition, not a forward declaration ending in ';'.
+    match = re.search(re.escape(signature) + r"\\s*\\{", FIRMWARE)
+    if match is None:
+        raise RuntimeError(f"Could not locate function definition: {signature}")
+    start = match.start()
+    opening = match.end() - 1
     depth = 0
     for i in range(opening, len(FIRMWARE)):
         if FIRMWARE[i] == "{":
