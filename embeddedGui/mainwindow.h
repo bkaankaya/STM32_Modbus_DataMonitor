@@ -66,9 +66,10 @@ private:
         REQ_ALL = 4
     };
     RequestType currentRequest;
+    quint16 pendingRegisters;
 
     void initSerialPort();
-    void sendModbusRequest(quint8 slaveAddr, quint8 functionCode, quint16 startAddr, quint16 numRegisters);
+    void sendModbusRequest(quint8 slaveAddr, quint8 functionCode, quint16 startAddr, quint16 numRegisters, RequestType requestType);
     quint16 calculateCRC16(const QByteArray &data);
     void parseModbusResponse(const QByteArray &response);
     float registersToFloat(quint16 high, quint16 low);

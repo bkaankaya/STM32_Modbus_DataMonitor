@@ -1,26 +1,31 @@
 #include "mainwindow.h"
+#include "modbusframe.h"
 #include "ui_mainwindow.h"
 #include <QMessageBox>
 #include <QDebug>
+#include <cstring>
+#include <cstdint>
 
 #define SLAVE_ADDRESS 0x01
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
     , ui(new Ui::MainWindow)
-    , serialPort(nullptr)
+    , serialPort(new QSerialPort(this))
     , responseTimer(nullptr)
     , currentRequest(REQ_NONE)
+    , pendingRegisters(0)
 {
     ui->setupUi(this);
 
-    //initSerialPort();
+    connect(serialPort, &QSerialPort::readyRead, this, &MainWindow::readSerialData);
 
     responseTimer = new QTimer(this);
     responseTimer->setSingleShot(true);
     responseTimer->setInterval(1000);
     connect(responseTimer, &QTimer::timeout, this, &MainWindow::handleTimeout);
 
+    on_btnRefresh_clicked();
     ui->lblOutput->setText("Hazır");
 }
 
@@ -34,24 +39,28 @@ MainWindow::~MainWindow()
 
 void MainWindow::initSerialPort()
 {
-    serialPort = new QSerialPort(this);
+    if (serialPort->isOpen())
+        return;
 
-    serialPort->setPortName(ui->cmbPortList->currentText());
-    serialPort->setBaudRate(ui->cmbBaudRate->currentText().toInt());
-    serialPort->setDataBits(QSerialPort::Data8);
-    serialPort->setParity(QSerialPort::NoParity);
-    serialPort->setStopBits(QSerialPort::OneStop); // Stop bitle flowcontrole gerek yok bunları kaldırabilirsin
-    serialPort->setFlowControl(QSerialPort::NoFlowControl);
-
-    if (serialPort->open(QIODevice::ReadWrite)) {
-        ui->lblOutput->setText("Port opened successfully!");
-        ui->btnConnection->setText("Disconnect");
-    } else {
-        ui->lblOutput->setText("Failed to open port!");
+    const QString selectedPort = ui->cmbPortList->currentText();
+    if (selectedPort.isEmpty()) {
+        ui->lblOutput->setText("No serial port selected.");
+        return;
     }
 
-    connect(serialPort, &QSerialPort::readyRead, this, &MainWindow::readSerialData);
+    serialPort->setPortName(selectedPort);
+    applySerialPortSettings();
 
+    if (serialPort->open(QIODevice::ReadWrite)) {
+        responseBuffer.clear();
+        pendingRegisters = 0;
+        currentRequest = REQ_NONE;
+        ui->lblOutput->setText("Connected: " + selectedPort);
+        ui->btnConnection->setText("Disconnect");
+    } else {
+        ui->lblOutput->setText("Cannot open port: " + serialPort->errorString());
+        ui->btnConnection->setText("Connect");
+    }
 }
 
 quint16 MainWindow::calculateCRC16(const QByteArray &data)
@@ -78,24 +87,31 @@ float MainWindow::registersToFloat(quint16 high, quint16 low)
 {
     // STM32'deki Float_To_Registers() ile aynı mantık
     // high = MSB (üst 16 bit), low = LSB (alt 16 bit)
-    union {
-        float f;
-        quint32 u;
-    } data;
-
-    data.u = (static_cast<quint32>(high) << 16) | static_cast<quint32>(low);
-    return data.f;
+    const quint32 bits = (static_cast<quint32>(high) << 16) | static_cast<quint32>(low);
+    float value;
+    static_assert(sizeof(value) == sizeof(bits), "Expected a 32-bit float");
+    std::memcpy(&value, &bits, sizeof(value));
+    return value;
 }
 
 void MainWindow::sendModbusRequest(quint8 slaveAddr, quint8 functionCode,
-                                   quint16 startAddr, quint16 numRegisters)
+                                   quint16 startAddr, quint16 numRegisters, RequestType requestType)
 {
     if (!serialPort || !serialPort->isOpen()) {
         QMessageBox::warning(this, "Uyarı", "Seri port açık değil!");
         return;
     }
 
-    QByteArray request; // Bellekte (stackte çünkü başka fonk.larla buray erişmeyeceğimiz için derleyici işini bitirince bu nesneyi otomatik silsin istiyorum) bir QByteArray nesnesi oluşturuluyor
+    if (responseTimer->isActive()) {
+        ui->lblOutput->setText("Please wait for the previous request.");
+        return;
+    }
+    if (functionCode != 0x03 || numRegisters == 0 || numRegisters > REG_ALL_COUNT) {
+        ui->lblOutput->setText("Invalid register request.");
+        return;
+    }
+
+    QByteArray request;
     request.append(static_cast<char>(slaveAddr));
     request.append(static_cast<char>(functionCode));
     request.append(static_cast<char>((startAddr >> 8) & 0xFF));
@@ -108,11 +124,14 @@ void MainWindow::sendModbusRequest(quint8 slaveAddr, quint8 functionCode,
     request.append(static_cast<char>((crc >> 8) & 0xFF));
 
     responseBuffer.clear();
-    serialPort->clear();
+    serialPort->clear(QSerialPort::Input);
+    if (serialPort->write(request) != request.size()) {
+        ui->lblOutput->setText("Unable to queue serial request.");
+        return;
+    }
 
-    serialPort->write(request);
-    serialPort->flush();
-
+    currentRequest = requestType;
+    pendingRegisters = numRegisters;
     responseTimer->start();
 
     qDebug() << "Modbus Request gönderildi:" << request.toHex(' ');
@@ -120,14 +139,27 @@ void MainWindow::sendModbusRequest(quint8 slaveAddr, quint8 functionCode,
 
 void MainWindow::readSerialData()
 {
-    responseBuffer.append(serialPort->readAll());
+    const QByteArray incoming = serialPort->readAll();
+    if (!responseTimer->isActive() || pendingRegisters == 0)
+        return; // Ignore unsolicited or late bytes after a timeout.
 
+    responseBuffer.append(incoming);
+    const auto status = modbus::inspectResponse(
+        reinterpret_cast<const std::uint8_t *>(responseBuffer.constData()),
+        static_cast<std::size_t>(responseBuffer.size()), SLAVE_ADDRESS, pendingRegisters);
 
-    if (responseBuffer.size() >= 7) {
-        responseTimer->stop();
+    if (status == modbus::FrameStatus::NeedMore)
+        return;
+
+    responseTimer->stop();
+    if (status == modbus::FrameStatus::Invalid) {
+        ui->lblOutput->setText("Invalid Modbus response (length, function, address or CRC).");
+    } else {
         parseModbusResponse(responseBuffer);
-        responseBuffer.clear();
     }
+    responseBuffer.clear();
+    pendingRegisters = 0;
+    currentRequest = REQ_NONE;
 }
 
 void MainWindow::parseModbusResponse(const QByteArray &response)
@@ -174,6 +206,11 @@ void MainWindow::parseModbusResponse(const QByteArray &response)
     }
 
     quint8 byteCount = static_cast<quint8>(response[2]);
+    if (byteCount % 2 != 0 || response.size() != 5 + byteCount ||
+        byteCount != pendingRegisters * 2) {
+        ui->lblOutput->setText("Invalid register count in response.");
+        return;
+    }
 
     // Register'ları oku
     QVector<quint16> registers;
@@ -208,7 +245,7 @@ void MainWindow::parseModbusResponse(const QByteArray &response)
         break;
 
     case REQ_ALL:
-        if (registers.size() >= 4) {
+        if (registers.size() >= 5) {
             float temp = registersToFloat(registers[0], registers[1]);
             float vref = registersToFloat(registers[2], registers[3]);
             quint16 buttonState = registers[4];  // 5. register buton durumu
@@ -258,66 +295,48 @@ QString MainWindow::formatButtonState(quint16 rawValue)
 void MainWindow::handleTimeout()
 {
     ui->lblOutput->setText("Hata: Timeout!");
+    responseBuffer.clear();
+    pendingRegisters = 0;
     currentRequest = REQ_NONE;
 }
 
 void MainWindow::on_btnTemp_clicked()
 {
-    currentRequest = REQ_TEMP;
-    sendModbusRequest(SLAVE_ADDRESS, 0x03, REG_TEMP_HIGH, 2);
+    sendModbusRequest(SLAVE_ADDRESS, 0x03, REG_TEMP_HIGH, 2, REQ_TEMP);
 }
 
 void MainWindow::on_btnVref_clicked()
 {
-    currentRequest = REQ_VREF;
-    sendModbusRequest(SLAVE_ADDRESS, 0x03, REG_VREF_HIGH, 2);
+    sendModbusRequest(SLAVE_ADDRESS, 0x03, REG_VREF_HIGH, 2, REQ_VREF);
 }
 
 void MainWindow::on_btnButtonState_clicked()
 {
-    currentRequest = REQ_BUTTON_STATE;
-    sendModbusRequest(SLAVE_ADDRESS, 0x03,REG_BUTTON_STATE,1);
+    sendModbusRequest(SLAVE_ADDRESS, 0x03,REG_BUTTON_STATE,1, REQ_BUTTON_STATE);
 }
 
 void MainWindow::on_btnAll_clicked()
 {
-    currentRequest = REQ_ALL; // Qt kendisi arka planda hallediyor bu kısmı
-    sendModbusRequest(SLAVE_ADDRESS, 0x03, REG_ALL_START, REG_ALL_COUNT);
+    sendModbusRequest(SLAVE_ADDRESS, 0x03, REG_ALL_START, REG_ALL_COUNT, REQ_ALL);
 }
 
 void MainWindow::on_btnConnect_clicked()
 {
-    if (serialPort && serialPort->isOpen()) {
-        ui->lblOutput->setText("Zaten bağlı.");
-        return;
-    }
-
-    // Port ismini GUI'deki comboBox'tan al
-    QString selectedPort = ui->cmbPortList->currentText();
-    serialPort->setPortName(selectedPort);
-
-    applySerialPortSettings(); // Baudrate, databits vs ayarlarını uygula
-
-    if (!serialPort->open(QIODevice::ReadWrite)) {
-        QMessageBox::critical(this, "Bağlantı Hatası", "Port açılamadı: " + serialPort->errorString());
-        return;
-    }
-
-    ui->lblOutput->setText("Bağlantı kuruldu: " + selectedPort);
+    initSerialPort();
 }
 
 void MainWindow::on_btnDisconnect_clicked()
 {
-    if (serialPort && serialPort->isOpen()) {
+    responseTimer->stop();
+    responseBuffer.clear();
+    pendingRegisters = 0;
+    currentRequest = REQ_NONE;
+    if (serialPort->isOpen())
         serialPort->close();
-        ui->lblOutput->setText("Bağlantı kesildi.");
-    } else {
-        ui->lblOutput->setText("Zaten bağlantı yok.");
-    }
+    ui->btnConnection->setText("Connect");
+    ui->lblOutput->setText("Disconnected.");
 }
-/*void MainWindow::on_btnConnection_clicked(){
 
-}*/
 void MainWindow::on_btnRefresh_clicked()
 {
     ui->cmbPortList->clear();
@@ -394,14 +413,8 @@ void MainWindow::updatePortInfo(const QString &portName)
 
 void MainWindow::on_btnConnection_clicked()
 {
-    if (ui->btnConnection->text() == "Disconnect") {
-        // Port currently open → close it
-        serialPort->close();
-        ui->lblOutput->setText("Port closed!");
-        ui->btnConnection->setText("Connect");
-    } else {
-        // Port closed → open it
+    if (serialPort->isOpen())
+        on_btnDisconnect_clicked();
+    else
         initSerialPort();
-    }
 }
-

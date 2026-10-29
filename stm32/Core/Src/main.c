@@ -31,7 +31,7 @@
 #define MODBUS_FUNC_READ_HOLD  0x03
 #define MODBUS_BUFFER_SIZE     64
 #define MODBUS_TIMEOUT         100  // ms
-#define MODBUS_FRAME_TIMEOUT   10   // ms (3.5 character time)
+#define MODBUS_FRAME_TIMEOUT   10   // ms (discard an incomplete 8-byte request)
 #define DEBOUNCE_DELAY 100 // ms
 
 // Register adresleri
@@ -327,7 +327,8 @@ uint16_t Calculate_CRC16(uint8_t *buffer, uint8_t length)
   */
 void Modbus_Process_Request(void)
 {
-    if (modbus_rx_index < 8)
+    // Function 0x03 requests are exactly eight bytes, including CRC.
+    if (modbus_rx_index != 8)
     {
         modbus_rx_index = 0;
         return;
@@ -470,47 +471,42 @@ int main(void)
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
-	  btn_State = HAL_GPIO_ReadPin(GPIOA, GPIO_PIN_0);
-
-
-	  if(btn_State == GPIO_PIN_SET){
-		  holding_registers[REG_BUTTON_STATE] = 1;
-		 // HAL_DELAY(100); gelse mi ki acaba???
-	  }
-	  else {
-		  holding_registers[REG_BUTTON_STATE] = 0;
-	  }
-
-    // LED'leri güncelle
+    Button_Debounce_Update();
     LED_Update();
 
-    // Her 500ms'de bir ADC oku
-    if (HAL_GetTick() - last_adc_update >= 500)
+    // Drop partial requests after 10 ms. This is an application timeout,
+    // not a full Modbus RTU inter-character timing implementation.
+    if (modbus_rx_index > 0 && (HAL_GetTick() - last_rx_time) >= MODBUS_FRAME_TIMEOUT)
     {
-        ADC_Read_All_Channels();
-        Update_Holding_Registers();
-        last_adc_update = HAL_GetTick();
+        modbus_rx_index = 0;
     }
 
-    // Polling ile UART oku (timeout = 1ms)
+    // Each supported Function 0x03 request consists of exactly eight bytes.
+    // Process it immediately after receipt; do not wait for a long idle gap.
     if (UART_Receive_Byte(&rx_byte, 1))
     {
-        modbus_rx_buffer[modbus_rx_index++] = rx_byte;
-        last_rx_time = HAL_GetTick();
-
-        // Buffer taşmasını önle
-        if (modbus_rx_index >= MODBUS_BUFFER_SIZE)
+        if (modbus_rx_index < 8)
+        {
+            modbus_rx_buffer[modbus_rx_index++] = rx_byte;
+            last_rx_time = HAL_GetTick();
+            if (modbus_rx_index == 8)
+            {
+                Modbus_Process_Request();
+            }
+        }
+        else
         {
             modbus_rx_index = 0;
         }
     }
 
-    // Frame timeout kontrolü (3.5 character time)
-    if (modbus_rx_index > 0 && (HAL_GetTick() - last_rx_time) >= MODBUS_FRAME_TIMEOUT)
+    // Do not interrupt a partially received request for ADC conversion.
+    // The ADC read is still polling-based and is not interrupt-safe.
+    if (modbus_rx_index == 0 && HAL_GetTick() - last_adc_update >= 500)
     {
-        // Frame tamamlandı, işle
-        Modbus_Process_Request();
-        modbus_rx_index = 0;
+        ADC_Read_All_Channels();
+        Update_Holding_Registers();
+        last_adc_update = HAL_GetTick();
     }
   }
   /* USER CODE END 3 */
