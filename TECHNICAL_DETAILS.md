@@ -1,5 +1,7 @@
 # Technical Details, Testing and Validation
 
+[Back to project README](README.md)
+
 ## Scope and evidence
 
 This document records the behavior visible in the checked-in STM32 firmware, CubeMX project configuration, Qt/C++ desktop application, and earlier project notes. The project was carried out during a mentor-guided embedded-systems internship.
@@ -145,7 +147,8 @@ The post-internship fixes are traceable in Git history; they should not be misre
 - **tests/test_modbusframe.cpp** checks Modbus CRC against a known request vector, fragmented replies, complete replies of several lengths, exception responses, wrong slave ID/function, corrupted CRC, mismatched register counts, and unexpected trailing bytes.
 - **tests/test_firmware_protocol.py** extracts the actual firmware C functions **Calculate_CRC16** and **Modbus_Process_Request**, compiles them on a host with small HAL stubs and ASan/UBSan, and tests normal and exceptional responses, invalid CRCs, wrong slave IDs, malformed request lengths, and register boundaries. This is not a device emulator.
 - The portable protocol test was built and run with **g++ -std=c++17** and AddressSanitizer/UndefinedBehaviorSanitizer in the maintenance environment.
-- **.github/workflows/qt-build.yml** builds the Qt desktop application on Ubuntu, runs both protocol test suites, and runs ARM GCC syntax checks on the three STM32 application C sources. Consult the [Actions run history](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions) for per-commit results.
+- **tests/build_stm32.sh** compiles and links the checked-in STM32 source and bundled HAL with ARM GCC into a Cortex-M4 `.elf` using the repository's Flash linker script.
+- **.github/workflows/qt-build.yml** builds both the Qt desktop application and STM32 firmware, runs both protocol suites, and checks the three STM32 application C sources. See [a successful build and test run](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions/runs/40871817845) and the [Actions run history](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions) for subsequent commits.
 - These are software build and unit checks, **not** end-to-end hardware tests or proof of real-time serial reliability.
 
 ### Confirmed by repository inspection

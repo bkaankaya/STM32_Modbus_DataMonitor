@@ -17,7 +17,7 @@ This repository is a snapshot of an internship learning project, not a productio
 - **embeddedGui/** — Qt Widgets/C++ desktop GUI, Qt SerialPort integration, Modbus response validator, and CMake project
 - **tests/** — C++ Modbus framing/CRC tests and a host-side test of the actual STM32 Modbus handler using HAL stubs
 - **.github/workflows/qt-build.yml** — GitHub Actions Qt build, ARM-source syntax checks, and protocol tests
-- **Technical Details, Testing and Validation** — implementation details, original test notes, and verification limits
+- **[TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md)** — implementation details, original test notes, maintenance changes, and verification limits
 
 There is no separate docs/ directory in this repository.
 
@@ -73,7 +73,36 @@ Temperature and reference voltage use 32-bit IEEE-754 float values split across 
 3. Select the appropriate serial port and **115200, 8N1** settings, then connect.
 4. Use the Temperature, Vref, Button, or All controls to send read requests.
 
-The Qt build, protocol tests, and firmware-handler host tests run in [GitHub Actions](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions). The CI workflow also checks the application firmware sources using ARM GCC when the job succeeds. These software checks are **not** a substitute for building/flashing the complete STM32CubeIDE project and testing on the actual board.
+The Qt build, cross-compiled STM32 firmware ELF, and protocol tests run in [GitHub Actions](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions). Successful software builds are **not** a substitute for flashing the board and running electrical/serial tests.
+
+## Rebuilding and running tests
+
+From the repository root, with **Qt 6 Widgets, SerialPort, LinguistTools**, CMake, and a C++17 compiler installed:
+
+```sh
+cmake -S embeddedGui -B build/qt -DCMAKE_BUILD_TYPE=Release
+cmake --build build/qt --parallel
+```
+
+On Linux with **arm-none-eabi-gcc**, binutils, and the ARM newlib/nano runtime installed, the portable firmware build creates `build/stm32/stm32.elf` and a link map:
+
+```sh
+bash tests/build_stm32.sh build/stm32
+```
+
+STM32CubeIDE can also import `stm32/` and use the existing CubeMX project. The historical generated `stm32/Debug/makefile` contains the original developer's Windows paths; prefer the portable script for command-line builds.
+
+On Linux with GCC/G++ and Python 3, run the protocol regression suites:
+
+```sh
+g++ -std=c++17 -Wall -Wextra -Werror -pedantic tests/test_modbusframe.cpp -o build/test_modbusframe
+./build/test_modbusframe
+python3 tests/test_firmware_protocol.py
+```
+
+The firmware protocol test extracts the checked-in C handler and compiles it with **host-side HAL stubs**. It checks protocol behavior, not physical UART timing or ADC measurements. The [GitHub Actions workflow](.github/workflows/qt-build.yml) performs both builds and both test suites on Ubuntu.
+
+**Confirmed CI run:** [STM32 ELF + Qt build and protocol checks passed](https://github.com/bkaankaya/STM32_Modbus_DataMonitor/actions/runs/40871817845). The real board still requires flash, serial wiring, and hardware-in-the-loop validation.
 
 ## Verified fixes and remaining limits
 
@@ -87,7 +116,7 @@ The original internship implementation has received later maintenance fixes; the
 - This connection uses **8N1** for the original USB-UART setup. The official Modbus RTU serial-line guide specifies an **11-bit character format** (including two stop bits when parity is disabled), so do not advertise this demonstration as fully serial-line compliant.
 - Original notes describe serial experiments and a long-duration run, but raw serial captures and lab logs are not committed. No error-rate or 24-hour reliability guarantee is claimed.
 
-For the current implementation and specific validation limits, see **Technical Details, Testing and Validation**. External references: [Modbus specifications](https://www.modbus.org/modbus-specifications), [Qt QSerialPort](https://doc.qt.io/qt-6/qserialport.html), and [ST STM32CubeF4](https://github.com/STMicroelectronics/STM32CubeF4).
+For the current implementation and specific validation limits, see **[TECHNICAL_DETAILS.md](TECHNICAL_DETAILS.md)**. External references: [Modbus specifications](https://www.modbus.org/modbus-specifications), [Qt QSerialPort](https://doc.qt.io/qt-6/qserialport.html), and [ST STM32CubeF4](https://github.com/STMicroelectronics/STM32CubeF4).
 
 ## Licensing note
 
