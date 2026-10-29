@@ -166,7 +166,8 @@ void MainWindow::parseModbusResponse(const QByteArray &response)
 {
     qDebug() << "Modbus Response alındı:" << response.toHex(' ');
 
-    if (response.size() < 7) {
+    // Modbus exception responses are five bytes; normal responses are longer.
+    if (response.size() < 5) {
         ui->lblOutput->setText("Hata: Yanıt çok kısa!");
         return;
     }
