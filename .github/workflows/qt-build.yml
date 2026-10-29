@@ -29,6 +29,8 @@ jobs:
               -Istm32/Drivers/CMSIS/Device/ST/STM32F4xx/Include \
               -Istm32/Drivers/CMSIS/Include "$src"
           done
+      - name: Test firmware Modbus request handler on host
+        run: python3 tests/test_firmware_protocol.py
       - name: Run protocol regression tests (ASan/UBSan)
         run: |
           g++ -std=c++17 -Wall -Wextra -Werror -pedantic -fsanitize=address,undefined -fno-omit-frame-pointer tests/test_modbusframe.cpp -o build/test_modbusframe
